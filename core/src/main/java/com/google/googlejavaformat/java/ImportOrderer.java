@@ -46,7 +46,20 @@ public class ImportOrderer {
    */
   public static String reorderImports(String text, Style style) throws FormatterException {
     ImmutableList<Tok> toks = JavaInput.buildToks(text, CLASS_START);
-    return new ImportOrderer(text, toks, style).reorderImports();
+    ImportOrderConfig config;
+    if (style.equals(Style.GOOGLE)) {
+      config = new ImportOrderConfig(GOOGLE_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineGoogle);
+    } else if (style.equals(Style.AOSP)) {
+      config = new ImportOrderConfig(AOSP_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineAosp);
+    } else {
+      throw new IllegalArgumentException("Unsupported code style: " + style);
+    }
+    return new ImportOrderer(text, toks, config).reorderImports();
+  }
+
+  public static String reorderImports(String text, ImportOrderConfig config) throws FormatterException {
+    ImmutableList<Tok> toks = JavaInput.buildToks(text, CLASS_START);
+    return new ImportOrderer(text, toks, config).reorderImports();
   }
 
   /**
@@ -168,19 +181,22 @@ public class ImportOrderer {
   private final Comparator<Import> importComparator;
   private final BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn;
 
-  private ImportOrderer(String text, ImmutableList<Tok> toks, Style style) {
+  public static class ImportOrderConfig {
+    final Comparator<Import> importComparator;
+    final BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn;
+
+      public ImportOrderConfig(Comparator<Import> importComparator, BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn) {
+          this.importComparator = importComparator;
+          this.shouldInsertBlankLineFn = shouldInsertBlankLineFn;
+      }
+  }
+
+  private ImportOrderer(String text, ImmutableList<Tok> toks, ImportOrderConfig config) {
     this.text = text;
     this.toks = toks;
     this.lineSeparator = Newlines.guessLineSeparator(text);
-    if (style.equals(Style.GOOGLE)) {
-      this.importComparator = GOOGLE_IMPORT_COMPARATOR;
-      this.shouldInsertBlankLineFn = ImportOrderer::shouldInsertBlankLineGoogle;
-    } else if (style.equals(Style.AOSP)) {
-      this.importComparator = AOSP_IMPORT_COMPARATOR;
-      this.shouldInsertBlankLineFn = ImportOrderer::shouldInsertBlankLineAosp;
-    } else {
-      throw new IllegalArgumentException("Unsupported code style: " + style);
-    }
+    this.importComparator = config.importComparator;
+    this.shouldInsertBlankLineFn = config.shouldInsertBlankLineFn;
   }
 
   /** An import statement. */
