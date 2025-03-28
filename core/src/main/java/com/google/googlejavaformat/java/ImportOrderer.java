@@ -44,22 +44,25 @@ public class ImportOrderer {
    *
    * @throws FormatterException if the input could not be parsed.
    */
-  public static String reorderImports(String text, Style style) throws FormatterException {
+  public static String reorderImports(String text, Comparator<Import> importComparator, BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn) throws FormatterException {
     ImmutableList<Tok> toks = JavaInput.buildToks(text, CLASS_START);
-    ImportOrderConfig config;
+    return new ImportOrderer(text, toks, importComparator, shouldInsertBlankLineFn).reorderImports();
+  }
+
+  /**
+   * Reorder the inputs in {@code text}, a complete Java program. On success, another complete Java
+   * program is returned, which is the same as the original except the imports are in order.
+   *
+   * @throws FormatterException if the input could not be parsed.
+   */
+  public static String reorderImports(String text, Style style) throws FormatterException {
     if (style.equals(Style.GOOGLE)) {
-      config = new ImportOrderConfig(GOOGLE_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineGoogle);
+      return reorderImports(text, GOOGLE_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineGoogle);
     } else if (style.equals(Style.AOSP)) {
-      config = new ImportOrderConfig(AOSP_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineAosp);
+      return reorderImports(text,AOSP_IMPORT_COMPARATOR, ImportOrderer::shouldInsertBlankLineAosp);
     } else {
       throw new IllegalArgumentException("Unsupported code style: " + style);
     }
-    return new ImportOrderer(text, toks, config).reorderImports();
-  }
-
-  public static String reorderImports(String text, ImportOrderConfig config) throws FormatterException {
-    ImmutableList<Tok> toks = JavaInput.buildToks(text, CLASS_START);
-    return new ImportOrderer(text, toks, config).reorderImports();
   }
 
   /**
@@ -181,48 +184,40 @@ public class ImportOrderer {
   private final Comparator<Import> importComparator;
   private final BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn;
 
-  public static class ImportOrderConfig {
-    final Comparator<Import> importComparator;
-    final BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn;
-
-      public ImportOrderConfig(Comparator<Import> importComparator, BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn) {
-          this.importComparator = importComparator;
-          this.shouldInsertBlankLineFn = shouldInsertBlankLineFn;
-      }
-  }
-
-  private ImportOrderer(String text, ImmutableList<Tok> toks, ImportOrderConfig config) {
+  private ImportOrderer(String text, ImmutableList<Tok> toks, Comparator<Import> importComparator, BiFunction<Import, Import, Boolean> shouldInsertBlankLineFn) {
     this.text = text;
     this.toks = toks;
     this.lineSeparator = Newlines.guessLineSeparator(text);
-    this.importComparator = config.importComparator;
-    this.shouldInsertBlankLineFn = config.shouldInsertBlankLineFn;
+    this.importComparator = importComparator;
+    this.shouldInsertBlankLineFn = shouldInsertBlankLineFn;
   }
 
   /** An import statement. */
-  class Import {
+  public static class Import {
     private final String imported;
     private final boolean isStatic;
     private final String trailing;
+    private final String lineSeparator;
 
-    Import(String imported, String trailing, boolean isStatic) {
+    Import(String imported, String trailing, boolean isStatic, String lineSeparator) {
       this.imported = imported;
       this.trailing = trailing;
       this.isStatic = isStatic;
+      this.lineSeparator = lineSeparator;
     }
 
     /** The name being imported, for example {@code java.util.List}. */
-    String imported() {
+    public String imported() {
       return imported;
     }
 
     /** True if this is {@code import static}. */
-    boolean isStatic() {
+    public boolean isStatic() {
       return isStatic;
     }
 
     /** The top-level package of the import. */
-    String topLevel() {
+    public String topLevel() {
       return DOT_SPLITTER.split(imported()).iterator().next();
     }
 
@@ -249,7 +244,7 @@ public class ImportOrderer {
      * disallowed by the style guide), the trailing whitespace of the first import does not include
      * a line terminator.
      */
-    String trailing() {
+    public String trailing() {
       return trailing;
     }
 
@@ -366,7 +361,7 @@ public class ImportOrderer {
         // Extra semicolons are not allowed by the JLS but are accepted by javac.
         i++;
       }
-      imports.add(new Import(importedName, trailing.toString(), isStatic));
+      imports.add(new Import(importedName, trailing.toString(), isStatic, lineSeparator));
       // Remember the position just after the import we just saw, before skipping blank lines.
       // If the next thing after the blank lines is not another import then we don't want to
       // include those blank lines in the text to be replaced.
